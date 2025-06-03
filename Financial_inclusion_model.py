@@ -9,7 +9,6 @@ from sklearn.metrics import (
     confusion_matrix, ConfusionMatrixDisplay
 )
 from xgboost import XGBClassifier, plot_importance
-import joblib
 
 # 🔹 Load the dataset
 df = pd.read_csv("Financial_inclusion_dataset.csv")
