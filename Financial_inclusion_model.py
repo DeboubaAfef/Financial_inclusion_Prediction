@@ -1,34 +1,26 @@
+# 🔹 Import libraries
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from ydata_profiling import ProfileReport
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     confusion_matrix, ConfusionMatrixDisplay
 )
-from xgboost import XGBClassifier
+from xgboost import XGBClassifier, plot_importance
 import joblib
 
 # 🔹 Load the dataset
 df = pd.read_csv("Financial_inclusion_dataset.csv")
-print(df.shape)
-df.info()
-print(df.head())
+print("✅ Dataset loaded:", df.shape)
 
-# 🔹 Generate profiling report
-profile = ProfileReport(df, title="Financial Inclusion Profiling Report", explorative=True)
-profile.to_file("Financial_inclusion_report.html")
-print("✔ Report generated: 'Financial_inclusion_report.html'")
-
-# 🔹 Clean the data
+# 🔹 Data cleaning
 df_cleaned = df.copy()
-print(df_cleaned.isnull().sum())  # Missing values
-print(df_cleaned.duplicated().sum())  # Duplicates
+print("\n🧼 Missing values:\n", df_cleaned.isnull().sum())
+print("📌 Duplicates:", df_cleaned.duplicated().sum())
 df_cleaned = df_cleaned.drop_duplicates()
-
-# 🔹 Handle outliers
+# 🔹 Visualize outliers
 numeric_columns = ['household_size', 'age_of_respondent', 'year']
 plt.figure(figsize=(15, 5))
 for i, column in enumerate(numeric_columns):
@@ -37,9 +29,9 @@ for i, column in enumerate(numeric_columns):
     plt.title(f"Boxplot of {column}")
 plt.tight_layout()
 plt.savefig("All_Outliers_Boxplots.png")
-print("✔ Boxplots saved as 'All_Outliers_Boxplots.png'")
+print("📸 Boxplots saved as 'All_Outliers_Boxplots.png'")
 
-# Function to remove outliers
+# 🔹 Outlier removal function
 def remove_outliers_iqr(data, column):
     Q1 = data[column].quantile(0.25)
     Q3 = data[column].quantile(0.75)
@@ -49,13 +41,12 @@ def remove_outliers_iqr(data, column):
     original_count = data.shape[0]
     data = data[(data[column] >= lower_bound) & (data[column] <= upper_bound)]
     removed = original_count - data.shape[0]
-    print(f"✔ Outliers removed from '{column}': {removed} rows")
+    print(f"🗑️ Removed {removed} outliers from '{column}'")
     return data
-
+# 🔹 Remove outliers
 df_cleaned = remove_outliers_iqr(df_cleaned, 'household_size')
 df_cleaned = remove_outliers_iqr(df_cleaned, 'age_of_respondent')
-
-# 🔹 Encode categorical columns
+# 🔹 Encode categorical variables
 categorical_cols = [
     'country', 'location_type', 'cellphone_access', 'gender_of_respondent',
     'relationship_with_head', 'marital_status', 'education_level', 'job_type', 'bank_account'
@@ -63,14 +54,12 @@ categorical_cols = [
 le = LabelEncoder()
 for col in categorical_cols:
     df_cleaned[col] = le.fit_transform(df_cleaned[col])
-    print(f"✔ Encoded '{col}'")
-
-print("\n🎯 Sample of Encoded Data:")
-print(df_cleaned[categorical_cols].head())
-
-# 🔹 Prepare for ML
+    print(f"🔤 Encoded '{col}'")
+# 🔹 Feature selection
 y = df_cleaned['bank_account']
 X = df_cleaned.drop(['bank_account', 'uniqueid'], axis=1)
+
+# 🔹 Train-test split
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
@@ -84,30 +73,35 @@ xgb_model = XGBClassifier(
     eval_metric='logloss'
 )
 xgb_model.fit(X_train, y_train)
-print("✅ XGBoost model trained successfully!")
+print("✅ XGBoost model trained!")
 
-# 🔹 Predictions & Evaluation
+# 🔹 Evaluation
 y_pred = xgb_model.predict(X_test)
-
 accuracy = accuracy_score(y_test, y_pred)
 precision = precision_score(y_test, y_pred)
 recall = recall_score(y_test, y_pred)
 f1 = f1_score(y_test, y_pred)
 cm = confusion_matrix(y_test, y_pred)
 
-print(f"\n📊 Accuracy:  {accuracy:.4f}")
-print(f"🎯 Precision: {precision:.4f}")
-print(f"📈 Recall:    {recall:.4f}")
-print(f"🏅 F1 Score:  {f1:.4f}")
-
+print("\n🎯 Evaluation Metrics:")
+print(f"📊 Accuracy :  {accuracy:.4f}")
+print(f"🏅 Precision:  {precision:.4f}")
+print(f"📈 Recall   :  {recall:.4f}")
+print(f"⭐ F1 Score :  {f1:.4f}")
+# 🔹 Confusion matrix
 disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["No Account", "Has Account"])
 disp.plot(cmap="Blues")
 plt.title("Confusion Matrix")
 plt.savefig("confusion_matrix.png")
 plt.show()
+# 🔹 Feature importance visualization
+plt.figure(figsize=(10, 6))
+plot_importance(xgb_model, importance_type='gain', max_num_features=10, title='Top 10 Feature Importances')
+plt.tight_layout()
+plt.savefig("feature_importance.png")
+plt.show()
+print("📊 Feature importance saved as 'feature_importance.png'")
 
-# 🔹 Save the model
-joblib.dump(xgb_model, "xgboost_model.pkl")
-print("✔ Model saved as 'xgboost_model.pkl'")
-
+# 🔹 Class distribution
+print("\n📌 Target Class Distribution (normalized):")
 print(y.value_counts(normalize=True))
