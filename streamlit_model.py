@@ -1,125 +1,127 @@
+import streamlit as st
 import pandas as pd
-# load the dataset
-df = pd.read_csv("Financial_inclusion_dataset.csv")
-# Display the first 5 rows
-df.head()
-# Display data types, non-null counts, and memory usage
-df.info()
-print(df.shape)
-# Create a pandas profiling report
-#from ydata_profiling.profile_report import ProfileReport
-from ydata_profiling import ProfileReport #import library
-# Create and save the profiling report
-profile = ProfileReport(df, title="Financial Inclusion Profiling Report", explorative=True)
-profile.to_file("Financial_inclusion_report.html")
-print("✔ Rapport generated successfully ! Open file expresso_churn_report.html")
-df_cleaned = df.copy()
-# check missing values
-print(df.isnull().sum())
-# check duplicates values
-print(df.duplicated().sum())
-# Drop duplicate rows if any
-# Drop duplicate rows if any
-df_cleaned = df_cleaned.drop_duplicates()
-# Handle outliers
-# Import visualization libraries
+import joblib
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-#  List of numeric columns to check for outliers
-numeric_columns = ['household_size', 'age_of_respondent', 'year']
-#  Set up the plot size and number of subplots
-plt.figure(figsize=(15, 5))
-# Create one boxplot for each numeric column
-for i, column in enumerate(numeric_columns):
-    plt.subplot(1, 3, i + 1)  # 1 row, 3 columns, subplot i+1
-    sns.boxplot(x=df_cleaned[column])
-    plt.title(f"Boxplot of {column}")
-    plt.xlabel(column)
 
-# Adjust layout and save the figure
-plt.tight_layout()
-plt.savefig("All_Outliers_Boxplots.png")
-print("✔ All boxplots saved as 'All_Outliers_Boxplots.png'")
-# Function to remove outliers using the IQR method
-def remove_outliers_iqr(data, column):
-    Q1 = data[column].quantile(0.25)
-    Q3 = data[column].quantile(0.75)
-    IQR = Q3 - Q1
-    lower_bound = Q1 - 1.5 * IQR
-    upper_bound = Q3 + 1.5 * IQR
+# Load the trained model
+model = joblib.load("xgboost_model.pkl")
 
-    original_count = data.shape[0]
-    data = data[(data[column] >= lower_bound) & (data[column] <= upper_bound)]
-    removed = original_count - data.shape[0]
-    print(f"✔ Outliers removed from '{column}': {removed} rows")
-    return data
+# App title and styling
+st.set_page_config(page_title="Financial Inclusion Predictor", layout="wide")
+st.title("💰 Financial Inclusion Prediction App")
+st.markdown("Predict whether an individual has a **bank account** based on demographic and socio-economic features.")
 
-# Apply to 'household_size' and 'age_of_respondent'
-df_cleaned = remove_outliers_iqr(df_cleaned, 'household_size')
-df_cleaned = remove_outliers_iqr(df_cleaned, 'age_of_respondent')
-# Encode categorical features
-from sklearn.preprocessing import LabelEncoder
+# Sidebar input method
+st.sidebar.header("📥 Input Method")
+input_method = st.sidebar.radio("Choose input method:", ["Manual Input", "Upload CSV"])
 
-# 🧹 List of categorical columns to encode
-categorical_cols = [
-    'country', 'location_type', 'cellphone_access', 'gender_of_respondent',
-    'relationship_with_head', 'marital_status', 'education_level', 'job_type', 'bank_account'
+# Define label encodings (used during training)
+label_maps = {
+    'country': {'Kenya': 0, 'Rwanda': 1, 'Tanzania': 2, 'Uganda': 3},
+    'location_type': {'Rural': 0, 'Urban': 1},
+    'cellphone_access': {'No': 0, 'Yes': 1},
+    'gender_of_respondent': {'Female': 0, 'Male': 1},
+    'relationship_with_head': {
+        'Head of Household': 0, 'Spouse': 4, 'Child': 1, 'Parent': 3, 'Other relative': 2, 'Other non-relatives': 5
+    },
+    'marital_status': {
+        'Married/Living together': 2, 'Single/Never Married': 4, 'Widowed': 5,
+        'Divorced/Separated': 1, 'Don’t know': 0, 'Other': 3
+    },
+    'education_level': {
+        'Secondary education': 4, 'No formal education': 1, 'Primary education': 3,
+        'Tertiary education': 5, 'Vocational/Specialised training': 6, 'Other/Dont know/RTA': 2, '6': 0
+    },
+    'job_type': {
+        'Self employed': 5, 'Government Dependent': 1, 'Formally employed Private': 0,
+        'Informally employed': 3, 'Formally employed Government': 2,
+        'Farming and Fishing': 4, 'Remittance Dependent': 6, 'Other Income': 7,
+        'No Income': 8, 'Dont Know/Refuse to answer': 9
+    }
+}
+
+# Feature names expected by the model
+expected_features = [
+    'country', 'year', 'location_type', 'cellphone_access', 'household_size',
+    'age_of_respondent', 'gender_of_respondent', 'relationship_with_head',
+    'marital_status', 'education_level', 'job_type'
 ]
 
-# Create a LabelEncoder object
-le = LabelEncoder()
+# Helper function to encode a single row manually
+def encode_input(data):
+    for col in label_maps:
+        if col in data.columns:
+            data[col] = data[col].map(label_maps[col])
+    return data
 
-# Apply Label Encoding to each categorical column
-for col in categorical_cols:
-    df_cleaned[col] = le.fit_transform(df_cleaned[col])
-    print(f"✔ Encoded '{col}'")
+# 📥 Manual Input
+if input_method == "Manual Input":
+    st.subheader("✍️ Enter the person's information")
 
-# Check the result
-print("\n🎯 Encoded Data Sample:")
-print(df_cleaned[categorical_cols].head())
-# train and test a machine learning classifier
-from sklearn.model_selection import train_test_split
+    with st.form("user_input_form"):
+        country = st.selectbox("Country", list(label_maps['country'].keys()))
+        year = st.number_input("Year", min_value=2000, max_value=2030, value=2018)
+        location_type = st.selectbox("Location Type", list(label_maps['location_type'].keys()))
+        cellphone_access = st.selectbox("Cellphone Access", list(label_maps['cellphone_access'].keys()))
+        household_size = st.number_input("Household Size", min_value=1, max_value=20, value=4)
+        age = st.slider("Age of Respondent", 16, 100, 35)
+        gender = st.selectbox("Gender", list(label_maps['gender_of_respondent'].keys()))
+        relationship = st.selectbox("Relationship with Head", list(label_maps['relationship_with_head'].keys()))
+        marital_status = st.selectbox("Marital Status", list(label_maps['marital_status'].keys()))
+        education = st.selectbox("Education Level", list(label_maps['education_level'].keys()))
+        job_type = st.selectbox("Job Type", list(label_maps['job_type'].keys()))
 
-# Target variable
-y = df_cleaned['bank_account']
+        submitted = st.form_submit_button("Predict")
 
-# Features (drop the target and any unnecessary ID columns)
-X = df_cleaned.drop(['bank_account', 'uniqueid'], axis=1)
-# Train-test split (80% training, 20% testing)
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
- # Import and train model XGBoost
-#  Import the XGBoost classifier
-from xgboost import XGBClassifier
+        if submitted:
+            input_data = pd.DataFrame({
+                'country': [country],
+                'year': [year],
+                'location_type': [location_type],
+                'cellphone_access': [cellphone_access],
+                'household_size': [household_size],
+                'age_of_respondent': [age],
+                'gender_of_respondent': [gender],
+                'relationship_with_head': [relationship],
+                'marital_status': [marital_status],
+                'education_level': [education],
+                'job_type': [job_type]
+            })
 
-# Initialize the model (with common good default parameters)
-xgb_model = XGBClassifier(
-    n_estimators=100,
-    learning_rate=0.1,
-    max_depth=5,
-    random_state=42,
-    eval_metric='logloss'  # to suppress warning
-)
+            input_encoded = encode_input(input_data)
+            prediction = model.predict(input_encoded)[0]
+            label = "✅ Has Bank Account" if prediction == 1 else "❌ No Bank Account"
+            st.success(f"Prediction: **{label}**")
 
-# Train the model
-xgb_model.fit(X_train, y_train)
-print(" XGBoost model trained successfully!")
-from sklearn.metrics import accuracy_score
-accuracy = accuracy_score(y_test, y_pred_loaded)
-print(f"📊 Accuracy of loaded model: {accuracy:.4f}")
-# Train the model
-xgb_model.fit(X_train, y_train)
-print(" XGBoost model trained successfully!")
+# 📤 CSV Upload
+elif input_method == "Upload CSV":
+    st.subheader("📂 Upload CSV File for Bulk Prediction")
+    uploaded_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
-# ✅ Generate predictions and evaluate
-y_pred = xgb_model.predict(X_test)
-accuracy = accuracy_score(y_test, y_pred)
-print(f"📊 Accuracy of model: {accuracy:.4f}")
+    if uploaded_file is not None:
+        df_uploaded = pd.read_csv(uploaded_file)
+        st.write("📄 Preview of uploaded data:")
+        st.dataframe(df_uploaded.head())
 
-import joblib
-#  Save the trained model to a file
-joblib.dump(xgb_model, "xgboost_model.pkl")
-print("✔ Model saved as 'xgboost_model.pkl'")
+        # Ensure expected columns are present
+        if all(col in df_uploaded.columns for col in expected_features):
+            df_encoded = encode_input(df_uploaded.copy())
+            predictions = model.predict(df_encoded)
+            df_uploaded["prediction"] = np.where(predictions == 1, "Has Bank Account", "No Bank Account")
 
+            st.success("✅ Prediction completed!")
+            st.write(df_uploaded[["prediction"]].value_counts().rename("count"))
 
+            st.subheader("📊 Results with Predictions")
+            st.dataframe(df_uploaded)
+
+            csv_download = df_uploaded.to_csv(index=False).encode("utf-8")
+            st.download_button("📥 Download Results", data=csv_download, file_name="predictions.csv", mime="text/csv")
+        else:
+            st.error("❌ Uploaded CSV is missing required columns.")
+
+# Footer
+st.markdown("---")
+st.caption("Built with ❤️ using Streamlit and XGBoost - 2025")
